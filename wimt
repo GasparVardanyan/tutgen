@@ -1,0 +1,330 @@
+#!/bin/python3
+
+import os
+import sys
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+import pdfkit
+from pathlib import Path
+
+TMPDIR = str (Path.home ()) + "/.wimt/"
+
+# URLS
+url_library = "https://www.tutorialspoint.com/tutorialslibrary.htm"
+
+help_message = \
+"""
+WIMT - https://github.com/GasparVardanyan/WIMT
+--sections\t\t\tPrint library sections list
+--section index\t\t\tPrint section tutorials list
+--library\t\t\tPrint all tutorials list
+--tutorial identifier\t\tDownload identified tutorial
+"""
+
+# SCRIPTS
+script_extract_library_titles = \
+"""
+result = [];
+menus = document.getElementsByClassName ("menu");
+for (m in menus) if (menus [m].tagName == "UL")
+{
+ if (m) anchors = menus [m].getElementsByTagName ("a");
+ for (a in anchors) if (anchors [a].tagName == "A")
+  result.push (anchors [a].text);
+}
+return result.join ("*");
+"""
+script_extract_library_urls = \
+"""
+result = [];
+menus = document.getElementsByClassName ("menu");
+for (m in menus) if (menus [m].tagName == "UL")
+{                                                                 
+ if (m) anchors = menus [m].getElementsByTagName ("a");
+ for (a in anchors) if (anchors [a].tagName == "A")
+  result.push (anchors [a].href);
+}
+return result.join ("*");
+"""
+script_extract_library_sections = \
+"""
+result = []
+sections = document.getElementsByTagName ("h4");
+sections_count = sections.length;
+for (i = 0; i < sections_count; i++) if (sections [i].parentElement.classList.contains ("featured-box"))
+    result.push (sections [i].innerText);
+return result.join ("*");
+"""
+script_extract_section_titles = \
+"""
+result = [];
+menus = document.getElementsByClassName ("menu");
+m = %s
+{
+ if (m) anchors = menus [m].getElementsByTagName ("a");
+ for (a in anchors) if (anchors [a].tagName == "A")
+  result.push (anchors [a].text);
+}
+return result.join ("*");
+"""
+script_extract_section_urls = \
+"""
+result = [];
+menus = document.getElementsByClassName ("menu");
+m = %s
+{
+ if (m) anchors = menus [m].getElementsByTagName ("a");
+ for (a in anchors) if (anchors [a].tagName == "A")
+  result.push (anchors [a].href);
+}
+return result.join ("*");
+"""
+script_extract_main_menu_titles = \
+"""
+result = [];
+menu = document.getElementsByClassName ("sidebar") [0];
+anchors = menu.getElementsByTagName ("a")
+anchors_length = anchors.length;
+for (i = 0; i < anchors_length; i++) if (anchors [i].text)
+    result.push (anchors [i].text);
+return result.join ("*****");
+"""
+script_extract_main_menu_urls = \
+"""
+result = [];
+menu = document.getElementsByClassName ("sidebar") [0];
+anchors = menu.getElementsByTagName ("a")
+anchors_length = anchors.length;
+for (i = 0; i < anchors_length; i++) if (anchors [i].text)
+    result.push (anchors [i].href);
+return result.join ("*****");
+"""
+script_design_tutorial_page = \
+"""
+try { document.getElementsByTagName ("header") [0].style.display = "none"; } catch (e) {}
+try { document.getElementsByTagName ("aside") [0].parentElement.removeChild (document.getElementsByTagName ("aside") [0]); } catch (e) {}
+try { document.getElementsByTagName ("iframe") [0].parentElement.removeChild (document.getElementsByTagName ("iframe") [0]); } catch (e) {}
+try { document.getElementsByClassName ("tutorial-menu") [0].style.display = "none"; } catch (e) {}
+divs = document.getElementsByClassName ("content") [0].getElementsByTagName ("div") [0].children;
+c = divs.length;
+r = true;
+for (i = 1; i < c; i++)
+{
+    if (divs [i].classList.contains ("pre-btn")) r = true;
+    if (r) divs [i].style.display = "none";
+    if (divs [i].classList.contains ("tutorial-menu") || divs [i].classList.contains ("clearer")) r = false;
+}
+try { document.getElementById ("rightbar").style.display = "none"; } catch (e) {}
+try { document.getElementById ("privacy-banner").parentElement.removeChild (document.getElementById ("privacy-banner")); } catch (e) {}
+try { document.getElementsByClassName ("content") [0].getElementsByTagName ("div") [0].lastElementChild.style.display = "none"; } catch (e) {}
+try { document.getElementsByClassName ("content") [0].getElementsByTagName ("div") [0].style.border = "none" } catch (e) {}
+try { document.getElementsByClassName ("footer-copyright") [0].style.display = "none"; } catch (e) {}
+"""
+script_extract_submenu = \
+"""
+anchors = document.getElementsByTagName ("a");
+anchors_length = anchors.length;
+result = [];
+for (i = 0; i < anchors_length; i++)
+    if (anchors [i].parentElement.tagName == "TD") result.push (anchors [i].href);
+return result.join ("*****");
+"""
+script_extract_header = \
+"""
+return document.getElementsByClassName ("content") [0].getElementsByTagName ("div") [0].getElementsByTagName ("h1") [0].innerText;
+"""
+
+form_tutorial_header = \
+"""
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <title>{0}</title>
+    </head>
+    <body>
+        <div style="width: 60%; margin: auto;">
+            <img src="{1}" width="100%" />
+            <h1 style="text-align: center;">{0}</h1>
+            <h2 style="text-align: center;">&copy; Copyright by Tutorials Point (I) Pvt. Ltd.</h2>
+            <pre style="word-wrap: break-word; white-space: pre-wrap;">
+All the content and graphics published in this e-book are the property of
+Tutorials Point (I) Pvt. Ltd. The user of this e-book is prohibited to reuse, retain,
+copy, distribute or republish any contents or a part of contents of this e-book in
+any manner without written consent of the publisher.
+We strive to update the contents of our website and tutorials as timely and as
+precisely as possible, however, the contents may contain inaccuracies or errors.
+Tutorials Point (I) Pvt. Ltd. provides no guarantee regarding the accuracy,
+timeliness or completeness of our website or its contents including this tutorial.
+If you discover any errors on our website or in this tutorial, please notify us at
+contact@tutorialspoint.com</pre>
+             <h2 style="text-align: center;">Copied with WIMT</h2>
+             <pre style="word-wrap: break-word; white-space: pre-wrap; text-align: center;">https://github.com/GasparVardanyan/WIMT</pre>
+        </div>
+    </body>
+</html>
+"""
+
+script_extract_header_image = \
+"""
+return document.getElementsByClassName ("content") [0].getElementsByTagName ("img") [0].src;
+"""
+
+def pages_count (pdf_file) :
+    f = open (TMPDIR + ".pdfinfo_tmp", "w").close ()
+    os.system ("pdfinfo " + pdf_file + " >> " + TMPDIR + ".pdfinfo_tmp")
+    f = open (TMPDIR + ".pdfinfo_tmp", "r")
+    o = f.read ()
+    f.close ()
+    return int (o.split ("\nEncrypted:") [0].split (" ") [-1])
+
+def load_browser () :
+    global browser
+    print ("Loading browser...")
+    options = Options ()
+    options.add_argument ("--headless")
+    browser = webdriver.Chrome (options=options)
+
+def browser_get (url) :
+    global browser
+    print ("\033[1mLoading page...\033[0m")
+    browser.get (url)
+
+def show_library () :
+    global browser
+    global library_titles
+    global library_urls
+    global library_books_count
+    
+    browser_get (url_library)
+
+    library_titles = browser.execute_script (script_extract_library_titles).split ("*")
+    library_urls = browser.execute_script (script_extract_library_urls).split ("*")
+    library_books_count = len (library_titles)
+
+    for i in range (library_books_count) :
+        library_urls [i] = library_urls [i].replace ("https://www.tutorialspoint.com/", "").replace ("/index.htm", "")
+        if "." in library_urls [i] or "/" in library_urls [i] : continue
+        print ("%60s" % ("\033[1m" + library_urls [i] + "\033[0m") + " - " + library_titles [i])
+
+def show_sections () :
+    global browser
+
+    browser_get (url_library)
+    sections = browser.execute_script (script_extract_library_sections).split ("*")
+    sections_count = len (sections)
+    for i in range (sections_count) :
+        print ("%2s" % str (i + 1) + " : " + sections [i])
+
+def show_section (i) :
+    global browser
+
+    browser_get (url_library)
+
+    section_titles = browser.execute_script (script_extract_section_titles % str (int (i) - 1)).split ("*")
+    section_urls = browser.execute_script (script_extract_section_urls % str (int (i) - 1)).split ("*")
+    section_books_count = len (section_titles)
+
+    for i in range (section_books_count) :
+        id_url = section_urls [i].replace ("https://www.tutorialspoint.com/", "").replace ("/index.htm", "")
+        if "." in id_url or "/" in id_url : continue
+        print ("%60s" % ("\033[1m" + id_url + "\033[0m") + " - " + section_titles [i])
+
+def make_tutorial_page (url, label, totalcount) :
+    global tutorial_main_menu_titles
+    global tutorial_main_menu_urls
+    global tutorial_main_menu_count
+    global tutorial_id
+    global tutorial_pages_tree
+    global tutorial_headers
+    global tutorial_pagecounts
+    if (("_" not in label) and ("Quick Guide" in tutorial_main_menu_titles [int (label) - 1])) or not url.startswith ("https://www.tutorialspoint.com/" + tutorial_id) : return 
+    tutorial_pages_tree.append (label)
+    print ("Parsing page: " + label + " / " + str (totalcount) + "...")
+    browser_get (url)
+    browser.execute_script (script_design_tutorial_page)
+    tutorial_headers.append (tutorial_main_menu_titles [int (label) - 1] if "_" not in label else browser.execute_script (script_extract_header))
+    subpages = browser.execute_script (script_extract_submenu).split ("*****")
+    if subpages [0] == "" : subpages = subpages [1:]
+    subpages_len = len (subpages)
+    if not os.path.exists (TMPDIR) : os.makedirs (TMPDIR)
+    with open (TMPDIR + tutorial_id + "_" + label + ".html", "w") as f :
+        f.write (browser.page_source)
+    pdfkit.from_file (TMPDIR + tutorial_id + "_" + label + ".html", TMPDIR + tutorial_id + "_" + label + ".pdf")
+    tutorial_pagecounts.append (pages_count (TMPDIR + tutorial_id + "_" + label + ".pdf"))
+    for i in range (subpages_len) : make_tutorial_page (subpages [i], label + "_" + str (i + 1), subpages_len)        
+
+def make_headers () :
+    open (TMPDIR + tutorial_id + "_header.html", "w").close ()
+    with open (TMPDIR + tutorial_id + "_header.html", "w") as f :
+        f.write (form_tutorial_header.format (tutorial_id, header_img))
+    pdfkit.from_file (TMPDIR + tutorial_id + "_header.html", TMPDIR + tutorial_id + "_header.pdf")
+
+def unite_pages () :
+    unite_cmd = "pdfunite"
+    unite_cmd += " " + TMPDIR + tutorial_id + "_header.pdf"
+    pages_len = len (tutorial_pages_tree)
+    for i in range (pages_len) : unite_cmd += " " + TMPDIR + tutorial_id + "_" + tutorial_pages_tree [i] + ".pdf"
+    unite_cmd += " " + TMPDIR + tutorial_id + "_tutorial_wimt.pdf"
+    os.system (unite_cmd)
+    os.system ("cp " + TMPDIR + tutorial_id + "_tutorial_wimt.pdf" + " $PWD")
+
+def make_tutorial () :
+    global tutorial_main_menu_titles
+    global tutorial_main_menu_urls
+    global tutorial_main_menu_count
+    global tutorial_id
+    global tutorial_pages_tree
+    global tutorial_headers
+    global tutorial_pagecounts
+    global header_img
+    tutorial_pages_tree = []
+    tutorial_headers = []
+    tutorial_pagecounts = []
+    browser_get ("https://www.tutorialspoint.com/" + tutorial_id + "/index.htm")
+    try :
+        tutorial_main_menu_titles = browser.execute_script (script_extract_main_menu_titles).split ("*****")
+        header_img = browser.execute_script (script_extract_header_image)
+    except :
+        print ("Error. Invalid identifier.")
+        sys.exit ()
+    tutorial_main_menu_urls = browser.execute_script (script_extract_main_menu_urls).split ("*****")
+    tutorial_main_menu_count = len (tutorial_main_menu_titles)
+    print ("Parsing page data...")
+    for i in range (tutorial_main_menu_count) : make_tutorial_page (tutorial_main_menu_urls [i], str (i + 1), tutorial_main_menu_count)
+    make_headers ()
+    unite_pages ()
+
+def show_help_message () :
+    print (help_message)
+
+def main () :
+    global browser
+    global library_titles
+    global library_urls
+    global library_books_count
+    global tutorial_id
+    global header_img
+    load_browser ()
+
+    argv = sys.argv
+    argc = len (argv)
+
+    if argc == 2 :
+        if argv [1] == "--library" :
+            show_library ()
+        elif argv [1] == "--sections" :
+            show_sections ()
+        else : show_help_message ()
+    elif argc == 3 :
+        if argv [1] == "--tutorial" :
+            tutorial_id = argv [2]
+            make_tutorial ()
+        if argv [1] == "--section" :
+            show_section (argv [2])
+        else : show_help_message ()
+    else : show_help_message ()
+
+    browser.close ()
+
+if __name__ == "__main__" : main ()
