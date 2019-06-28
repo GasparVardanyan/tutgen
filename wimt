@@ -4,7 +4,7 @@ import os
 import sys
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-import pdfkit
+#import pdfkit
 from pathlib import Path
 
 TMPDIR = str (Path.home ()) + "/.wimt/"
@@ -250,7 +250,8 @@ def make_tutorial_page (url, label, totalcount) :
     if not os.path.exists (TMPDIR) : os.makedirs (TMPDIR)
     with open (TMPDIR + tutorial_id + "_" + label + ".html", "w") as f :
         f.write (browser.page_source)
-    pdfkit.from_file (TMPDIR + tutorial_id + "_" + label + ".html", TMPDIR + tutorial_id + "_" + label + ".pdf")
+#    pdfkit.from_file (TMPDIR + tutorial_id + "_" + label + ".html", TMPDIR + tutorial_id + "_" + label + ".pdf")
+    os.system ("wkhtmltopdf " + TMPDIR + tutorial_id + "_" + label + ".html " + TMPDIR + tutorial_id + "_" + label + ".pdf 2> /dev/null")
     tutorial_pagecounts.append (pages_count (TMPDIR + tutorial_id + "_" + label + ".pdf"))
     for i in range (subpages_len) : make_tutorial_page (subpages [i], label + "_" + str (i + 1), subpages_len)        
 
@@ -258,7 +259,8 @@ def make_headers () :
     open (TMPDIR + tutorial_id + "_header.html", "w").close ()
     with open (TMPDIR + tutorial_id + "_header.html", "w") as f :
         f.write (form_tutorial_header.format (tutorial_id, header_img))
-    pdfkit.from_file (TMPDIR + tutorial_id + "_header.html", TMPDIR + tutorial_id + "_header.pdf")
+#    pdfkit.from_file (TMPDIR + tutorial_id + "_header.html", TMPDIR + tutorial_id + "_header.pdf")
+    os.system ("wkhtmltopdf " + TMPDIR + tutorial_id + "_header.html " + TMPDIR + tutorial_id + "_header.pdf 2> /dev/null")
 
 def unite_pages () :
     unite_cmd = "pdfunite"
